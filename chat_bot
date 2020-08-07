@@ -1,0 +1,217 @@
+import logging
+
+from telegram import Bot
+from telegram import InlineKeyboardButton
+from telegram import InlineKeyboardMarkup
+from telegram import Update
+from telegram.ext import CallbackContext
+from telegram.ext import CallbackQueryHandler
+from telegram.ext import Updater
+from telegram.ext import MessageHandler
+from telegram.ext import CommandHandler
+from telegram.ext import ConversationHandler
+from telegram.ext import Filters
+from telegram.utils.request import Request
+
+
+
+NAME, GENDER, AGE, RAQAM, MUROJAAT = range(5)
+CALLBACK_BEGIN = 'x1'
+FEEDBACK_USER_ID = [613029923, 130061960]
+
+
+def start_buttons_handler(update: Update, context: CallbackContext):
+    """ Не относится к сценарию диалога, но создаёт начальные inline-кнопки
+    """
+    inline_buttons = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text='Start✅', callback_data=CALLBACK_BEGIN),
+            ],
+        ],
+    )
+    update.message.reply_text(
+        'Tugmani bosing!',
+        reply_markup=inline_buttons,
+    )
+
+
+
+def start_handler(update: Update, context: CallbackContext):
+    """ Начало взаимодействия по клику на inline-кнопку
+    """
+    chat_id = update.callback_query.message.chat.id
+    if chat_id in FEEDBACK_USER_ID:
+        query = update.callback_query
+        query.message.delete()
+        update.callback_query.bot.send_message(
+            chat_id=chat_id,
+            text='Bot muvaffaqiyatli ishga tushirildi🎉',
+        )
+        return MUROJAAT
+
+
+    update.callback_query.answer()
+    # Спросить имя
+    context.bot.send_photo(
+        chat_id=chat_id,
+        photo=open('a.PNG','rb'),
+        caption='"🍃Eco Mir" dan Nukus shahri va barcha tumanlari, Mini market, Super market va barcha magazinlarga har xil turdagi konserva mahsulotlarini taqdim etadi. Siz kutgan sifat va hamyonbop narxlarda.\n\n🚚Yetkazib berish xizmati mavjud.',
+        )
+    update.callback_query.bot.send_message(
+        chat_id=chat_id,
+        text='Davom ettirish uchun ismingizni kiriting',
+    )
+    return NAME
+
+
+
+def name_handler(update: Update, context: CallbackContext):
+    # Получить имя
+    context.user_data[NAME] = update.message.text
+    # Спросить пол
+    update.message.reply_text(
+        text='Yashash hududingizni kiriting',
+    )
+    return GENDER
+
+
+def raqam_handler(update: Update, context: CallbackContext):
+    context.user_data[GENDER] = update.message.text
+
+    # Спросить возраст
+    update.message.reply_text(
+        text='Telefon raqamingizni kiriting 📞',
+    )
+    return RAQAM
+
+
+def finish_handler(update: Update, context: CallbackContext):
+    # Получить возраст
+    raqam = update.message.text
+
+    context.user_data[RAQAM] = raqam
+
+    # TODO: вот тут запись в базу финала
+    # TODO 2: очистить `user_data`
+
+    # Завершить диалог
+    update.message.reply_text(f'''
+Siz kiritgan ma'lumotlar muvaffaqiyatli saqlandi ✔️
+👨‍💻Siz: {context.user_data[NAME]}, \n🏠Yashash hududingiz: {context.user_data[GENDER]}, \n📞Telefon raqamingiz: {context.user_data[RAQAM]}
+''')
+    for k in FEEDBACK_USER_ID:
+        context.bot.send_message(
+            chat_id=k,
+            text=f'''
+    Murojaat yo'llovchi ma'lumotlari!
+👨‍💻Mijoz: {context.user_data[NAME]}, \n🏠Yashash manzili: {context.user_data[GENDER]},  \n📞Telefon raqami: {context.user_data[RAQAM]}
+    ''',
+        )
+    update.message.reply_html('<b>Murojaatingiz yuborishingiz mumkin📜</b>')
+    return MUROJAAT
+
+
+def do_echo(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+
+    if chat_id in FEEDBACK_USER_ID:
+        # Смотрим на реплаи
+        error_message = None
+        reply = update.message.reply_to_message
+        if reply:
+            forward_from = reply.forward_from
+            if forward_from:
+                text = 'Administratordan javob:\n\n' + update.message.text
+                context.bot.send_message(
+                    chat_id=forward_from.id,
+                    text=text,
+                )
+                update.message.reply_text(
+                    text='Xabar yuborildi',
+                )
+            else:
+                error_message = "O'zingizga javob yoza olmaysiz"
+
+        else:
+            error_message = 'Javob yozish uchun reply qiling'
+
+        # Отправить сообщение об ошибке если оно есть
+        if error_message is not None:
+            update.message.reply_text(
+                text=error_message,
+            )
+    else:
+        for k in FEEDBACK_USER_ID:
+            # Пересылать всё как есть
+            update.message.forward(
+                chat_id=k,
+            )
+            context.bot.send_message(
+                chat_id=k,
+                text='Bu ' + context.user_data[NAME] + ' yuborgan murojaat'
+            )
+
+
+def cancel_handler(update: Update, context: CallbackContext):
+    """ Отменить весь процесс диалога. Данные будут утеряны
+    """
+    update.message.reply_text('Отмена. Для начала с нуля нажмите /start')
+    return ConversationHandler.END
+
+
+
+def echo_handler(update: Update, context: CallbackContext):
+    return ConversationHandler.END
+
+
+def main():
+
+    req = Request(
+        connect_timeout=3,
+        read_timeout=3.0,
+    )
+    bot = Bot(
+        token="1349104691:AAFSt8CT-Q9zPi7pGbp0y1VKFr_c8SOY8Fg",
+        request=req,
+    )
+    updater = Updater(
+        bot=bot,
+        use_context=True,
+    )
+
+
+    # Навесить обработчики команд
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(start_handler, pass_user_data=True),
+        ],
+        states={
+            NAME: [
+                MessageHandler(Filters.all, name_handler, pass_user_data=True),
+            ],
+            GENDER: [
+                MessageHandler(Filters.all, raqam_handler, pass_user_data=True),
+            ],
+            RAQAM: [
+                MessageHandler(Filters.all, finish_handler, pass_user_data=True),
+            ],
+            MUROJAAT: [
+                CommandHandler('start', echo_handler),
+                MessageHandler(Filters.all, do_echo, pass_user_data=True),
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', cancel_handler),
+        ],
+    )
+    updater.dispatcher.add_handler(conv_handler)
+    updater.dispatcher.add_handler(CommandHandler('start', start_buttons_handler))
+
+    # Начать бесконечную обработку входящих сообщений
+    updater.start_polling()
+    updater.idle()
+
+
+if __name__ == '__main__':
+    main()
